@@ -10,6 +10,7 @@ create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   team_name   text not null,
   is_admin    boolean not null default false,
+  disabled    boolean not null default false,  -- squadra "rimossa": non può più loggarsi (dati conservati)
   created_at  timestamptz not null default now()
 );
 
@@ -44,6 +45,26 @@ language sql stable security definer set search_path = public
 as $$
   select coalesce((select is_admin from public.profiles where id = auth.uid()), false);
 $$;
+
+-- Un non-admin può rinominare la propria squadra, ma NON può cambiare
+-- i flag disabled / is_admin (li congeliamo ai valori precedenti).
+create or replace function public.protect_profile_flags()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    new.disabled := old.disabled;
+    new.is_admin := old.is_admin;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_protect_profile_flags on public.profiles;
+create trigger trg_protect_profile_flags
+  before update on public.profiles
+  for each row execute function public.protect_profile_flags();
 
 -- ------------------------------------------------------------
 -- VOTAZIONI
@@ -102,6 +123,10 @@ create policy "profili leggibili da tutti gli autenticati"
 create policy "aggiorno solo il mio profilo (nome società)"
   on public.profiles for update to authenticated
   using (id = auth.uid()) with check (id = auth.uid());
+
+create policy "admin aggiorna qualsiasi profilo (rimozione squadra)"
+  on public.profiles for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
 
 -- ---- POLLS ----
 create policy "votazioni leggibili da tutti gli autenticati"

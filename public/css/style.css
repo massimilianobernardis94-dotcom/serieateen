@@ -202,7 +202,21 @@ textarea { resize: vertical; min-height: 120px; }
 .modal { background: var(--white); border-radius: 14px; width: 100%; max-width: 520px; padding: 24px; box-shadow: var(--shadow); max-height: 90vh; overflow: auto; }
 .modal h3 { font-size: 22px; color: var(--navy); margin-bottom: 6px; }
 .modal .row { display: flex; gap: 10px; margin-top: 20px; }
-.modal .row .btn { flex: 1; }
+/* pulsanti del popup tutti uguali: stessa larghezza e allineati (annulla il
+   margin-top/width:100% ereditati da .btn-primary, pensati per il form login) */
+.modal .row .btn { flex: 1 1 0; width: auto; margin-top: 0; }
+
+/* Popup di conferma */
+.modal-confirm { max-width: 420px; }
+.confirm-text { color: #2a3557; font-size: 15px; line-height: 1.5; margin: 6px 0 2px; }
+
+/* Tab Squadre */
+.team-card { display: flex; align-items: center; gap: 14px; }
+.team-card .avatar { cursor: default; flex: none; }
+.team-info { flex: 1; min-width: 0; }
+.team-info .team-name { font-weight: 700; color: var(--navy); font-size: 16px; }
+.team-info .role { color: var(--muted); font-size: 13px; }
+.team-actions { flex: none; }
 .opt-row { display: flex; gap: 8px; margin-top: 8px; }
 .opt-row input { flex: 1; }
 .opt-row button { background: #eee; border: 0; border-radius: 8px; width: 40px; cursor: pointer; font-size: 18px; }

@@ -2,7 +2,9 @@ import { getSupabase } from './supabase.js';
 
 let sb;                 // client supabase
 let session = null;     // sessione auth
-let profile = null;     // { id, team_name, is_admin }
+let profile = null;     // { id, team_name, is_admin, disabled }
+let authNotice = null;  // avviso da mostrare nella schermata di login (es. squadra rimossa)
+const TEAM_REMOVED_MSG = 'Questa squadra è stata rimossa: non può più accedere.';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -23,7 +25,11 @@ const initials = (name) => name.trim().split(/\s+/).slice(0,2).map(w => w[0]).jo
     if (!s) { profile = null; renderAuth(); }
   });
 
-  if (session) { await loadProfile(); renderApp(); }
+  if (session) {
+    await loadProfile();
+    if (!profile || profile.disabled) { authNotice = TEAM_REMOVED_MSG; await sb.auth.signOut(); return; }
+    renderApp();
+  }
   else renderAuth();
 })();
 
@@ -97,6 +103,11 @@ function renderAuth() {
       }
       session = (await sb.auth.getSession()).data.session;
       await loadProfile();
+      if (!profile || profile.disabled) {
+        authNotice = TEAM_REMOVED_MSG;
+        await sb.auth.signOut();      // il listener ridisegna il login con l'avviso
+        return;
+      }
       renderApp();
     } catch (err) {
       go.disabled = false; go.textContent = mode==='login'?'Accedi':'Crea società';
@@ -105,6 +116,7 @@ function renderAuth() {
   }
   function showMsg(t, k) { msg.textContent = t; msg.className = 'msg ' + k; }
   drawForm();
+  if (authNotice) { showMsg(authNotice, 'err'); authNotice = null; }
 }
 
 // Il nome società viene normalizzato in un identificatore email interno.
@@ -125,7 +137,7 @@ function friendlyAuthError(err, mode) {
 // ============================================================
 // APP SHELL
 // ============================================================
-const TABS = ['Regolamento', 'Votazioni', 'Proposte'];
+const TABS = ['Regolamento', 'Votazioni', 'Proposte', 'Squadre'];
 let activeTab = 'Regolamento';
 
 function renderApp() {
@@ -172,6 +184,7 @@ function renderApp() {
   if (activeTab === 'Regolamento') renderRegolamento(view);
   if (activeTab === 'Votazioni')   renderVotazioni(view);
   if (activeTab === 'Proposte')    renderProposte(view);
+  if (activeTab === 'Squadre')     renderSquadre(view);
 }
 
 // ---------- overlay helper ----------
@@ -181,6 +194,27 @@ function openModal(node) {
   ov.onclick = (e) => { if (e.target === ov) closeModal(); };
 }
 function closeModal() { const ov = $('#overlay'); ov.classList.remove('open'); ov.innerHTML = ''; }
+
+// Popup di conferma in stile app. Ritorna una Promise<boolean>.
+function confirmDialog(message, { okText = 'Conferma', cancelText = 'Annulla', danger = true } = {}) {
+  return new Promise((resolve) => {
+    const modal = el(`
+      <div class="modal modal-confirm">
+        <h3>Conferma</h3>
+        <p class="confirm-text">${esc(message)}</p>
+        <div class="row">
+          <button class="btn btn-ghost" data-a="no">${esc(cancelText)}</button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-a="yes">${esc(okText)}</button>
+        </div>
+      </div>`);
+    openModal(modal);
+    const ov = $('#overlay');
+    const done = (val) => { closeModal(); resolve(val); };
+    $('[data-a="no"]', modal).onclick = () => done(false);
+    $('[data-a="yes"]', modal).onclick = () => done(true);
+    ov.onclick = (e) => { if (e.target === ov) done(false); };   // click fuori = annulla
+  });
+}
 
 // ============================================================
 // TAB: REGOLAMENTO
@@ -319,7 +353,7 @@ function pollCard(poll, results, myOptionId, view) {
     if (!archived) {
       const arch = el(`<button class="btn btn-ghost btn-sm">Archivia</button>`);
       arch.onclick = async () => {
-        if (!confirm('Archiviare questa votazione? Non sarà più possibile votare.')) return;
+        if (!(await confirmDialog('Archiviare questa votazione? Non sarà più possibile votare.', { okText: 'Archivia' }))) return;
         await sb.from('polls').update({ status: 'archived', archived_at: new Date().toISOString() }).eq('id', poll.id);
         renderVotazioni(view);
       };
@@ -327,7 +361,7 @@ function pollCard(poll, results, myOptionId, view) {
     }
     const del = el(`<button class="btn btn-danger btn-sm">Elimina</button>`);
     del.onclick = async () => {
-      if (!confirm('Eliminare definitivamente questa votazione?')) return;
+      if (!(await confirmDialog('Eliminare definitivamente questa votazione?', { okText: 'Elimina' }))) return;
       await sb.from('polls').delete().eq('id', poll.id);
       renderVotazioni(view);
     };
@@ -433,7 +467,7 @@ function proposalCard(p, view) {
     edit.onclick = () => openProposalForm(view, p);
     const del = el(`<button class="btn btn-danger btn-sm">Elimina</button>`);
     del.onclick = async () => {
-      if (!confirm('Eliminare questa proposta?')) return;
+      if (!(await confirmDialog('Eliminare questa proposta?', { okText: 'Elimina' }))) return;
       await sb.from('proposals').delete().eq('id', p.id);
       renderProposte(view);
     };
@@ -472,6 +506,54 @@ function openProposalForm(view, existing = null) {
     if (error) { msg.className='msg err'; msg.textContent=error.message; return; }
     closeModal(); renderProposte(view);
   };
+}
+
+// ============================================================
+// TAB: SQUADRE
+// ============================================================
+async function renderSquadre(view) {
+  view.innerHTML = `
+    <div class="page-head"><h2>Squadre</h2></div>
+    <div id="team-list"><div class="loading">Carico…</div></div>`;
+
+  const list = $('#team-list');
+  const { data: teams, error } = await sb.from('profiles')
+    .select('*').eq('disabled', false).order('team_name', { ascending: true });
+  if (error) { list.innerHTML = `<div class="empty">Errore nel caricamento.</div>`; return; }
+  if (!teams.length) { list.innerHTML = `<div class="empty">Nessuna squadra registrata.</div>`; return; }
+
+  list.innerHTML = '';
+  teams.forEach(t => list.appendChild(teamCard(t, view)));
+}
+
+function teamCard(t, view) {
+  const isMe = t.id === profile.id;
+  const card = el(`
+    <div class="card team-card">
+      <div class="avatar">${esc(initials(t.team_name))}</div>
+      <div class="team-info">
+        <div class="team-name">${esc(t.team_name)}</div>
+        <div class="role">${t.is_admin ? 'Amministratore di Lega' : 'Presidente'}</div>
+      </div>
+      <div class="team-actions"></div>
+    </div>`);
+
+  // Solo l'admin può rimuovere una squadra, e non sé stesso né altri admin.
+  if (profile.is_admin && !isMe && !t.is_admin) {
+    const btn = el(`<button class="btn btn-danger btn-sm">Elimina</button>`);
+    btn.onclick = async () => {
+      const ok = await confirmDialog(
+        `Rimuovere «${t.team_name}»? Non potrà più accedere, ma le sue proposte e i suoi voti resteranno.`,
+        { okText: 'Elimina' }
+      );
+      if (!ok) return;
+      const { error } = await sb.from('profiles').update({ disabled: true }).eq('id', t.id);
+      if (error) { $('#team-list').innerHTML = `<div class="empty">Errore: ${esc(error.message)}</div>`; return; }
+      renderSquadre(view);
+    };
+    $('.team-actions', card).appendChild(btn);
+  }
+  return card;
 }
 
 // ============================================================
