@@ -1,0 +1,27 @@
+<svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Serie A Teen">
+  <defs>
+    <clipPath id="shield">
+      <path d="M14 44 C14 30 26 22 40 20 C70 15 130 15 160 20 C174 22 186 30 186 44 L186 176 C186 196 160 210 100 230 C40 210 14 196 14 176 Z"/>
+    </clipPath>
+  </defs>
+  <!-- Shield outline -->
+  <path d="M14 44 C14 30 26 22 40 20 C70 15 130 15 160 20 C174 22 186 30 186 44 L186 176 C186 196 160 210 100 230 C40 210 14 196 14 176 Z"
+        fill="#ffffff" stroke="#B99653" stroke-width="6"/>
+  <g clip-path="url(#shield)">
+    <!-- Swirl -->
+    <g transform="translate(100 78)">
+      <path d="M0-46 A46 46 0 0 1 40 23 L26 15 A30 30 0 0 0 0-30 Z" fill="#1a7a3c"/>
+      <path d="M40 23 A46 46 0 0 1 -40 23 L-26 15 A30 30 0 0 0 26 15 Z" fill="#c8102e"/>
+      <path d="M-40 23 A46 46 0 0 1 0-46 L0-30 A30 30 0 0 0 -26 15 Z" fill="#1a7a3c"/>
+      <circle r="20" fill="#B99653"/>
+      <circle r="20" fill="none" stroke="#ffffff" stroke-width="2"/>
+      <line x1="-20" y1="0" x2="20" y2="0" stroke="#ffffff" stroke-width="2"/>
+      <circle r="6" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+    </g>
+    <!-- SERIE A -->
+    <text x="100" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="30" letter-spacing="1" fill="#123a7a">SERIE A</text>
+    <!-- TEEN band -->
+    <rect x="14" y="170" width="172" height="46" fill="#123a7a"/>
+    <text x="100" y="203" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="30" letter-spacing="3" fill="#ffffff">TEEN</text>
+  </g>
+</svg>
