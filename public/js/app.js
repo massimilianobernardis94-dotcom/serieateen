@@ -189,8 +189,52 @@ async function renderRegolamento(view) {
   view.innerHTML = `<div class="loading">Carico il regolamento…</div>`;
   try {
     const res = await fetch('/regolamento.html');
-    const html = await res.text();
-    view.innerHTML = `<article class="reg">${html}</article>`;
+    const raw = await res.text();
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+    const body = doc.body;
+
+    // Il titolo principale sta sopra, a tutta larghezza
+    const h1 = body.querySelector('h1');
+    const title = h1 ? h1.textContent.trim() : 'Regolamento';
+    if (h1) h1.remove();
+
+    // Assegna un id a ogni capitolo (h2) e costruisci l'indice laterale
+    const slug = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const toc = [];
+    body.querySelectorAll('h2').forEach(h => {
+      const id = slug(h.textContent);
+      h.id = id;
+      toc.push({ id, text: h.textContent.trim() });
+    });
+    const tocHtml = toc.map(t => `<li><a href="#${t.id}" data-id="${t.id}">${esc(t.text)}</a></li>`).join('');
+
+    view.innerHTML = `
+      <h1 class="reg-title">${esc(title)}</h1>
+      <div class="reg-layout">
+        <aside class="reg-toc">
+          <h4>Indice</h4>
+          <ol>${tocHtml}</ol>
+        </aside>
+        <article class="reg reg-content">${body.innerHTML}</article>
+      </div>`;
+
+    // Click sull'indice → scorre al capitolo corrispondente
+    const links = [...view.querySelectorAll('.reg-toc a')];
+    links.forEach(a => a.onclick = (e) => {
+      e.preventDefault();
+      const target = document.getElementById(a.dataset.id);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', '#' + a.dataset.id);
+    });
+
+    // Evidenzia nell'indice il capitolo attualmente visibile
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach(en => {
+        if (en.isIntersecting) links.forEach(l => l.classList.toggle('active', l.dataset.id === en.target.id));
+      });
+    }, { rootMargin: '-74px 0px -70% 0px', threshold: 0 });
+    view.querySelectorAll('.reg-content h2').forEach(h => spy.observe(h));
   } catch {
     view.innerHTML = `<div class="empty">Regolamento non disponibile al momento.</div>`;
   }
