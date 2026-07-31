@@ -461,6 +461,24 @@ function proposalCard(p, view) {
       <div class="body-text">${esc(p.body)}</div>
       <div class="card-actions"></div>
     </div>`);
+
+  // Stato "Votata": l'admin lo commuta cliccando il badge, i presidenti lo vedono in sola lettura.
+  const head = $('.card-head', card);
+  if (profile.is_admin) {
+    const badge = el(p.voted
+      ? `<button class="badge badge-voted badge-click" title="Clicca per segnarla come non votata">✓ Votata</button>`
+      : `<button class="badge badge-todo badge-click" title="Clicca per segnarla come votata">Da votare</button>`);
+    badge.onclick = async () => {
+      badge.disabled = true;
+      const { error } = await sb.from('proposals').update({ voted: !p.voted }).eq('id', p.id);
+      if (error) { badge.disabled = false; return; }
+      renderProposte(view);
+    };
+    head.appendChild(badge);
+  } else if (p.voted) {
+    head.appendChild(el(`<span class="badge badge-voted">✓ Votata</span>`));
+  }
+
   if (canEdit) {
     const actions = $('.card-actions', card);
     const edit = el(`<button class="btn btn-ghost btn-sm">Modifica</button>`);
