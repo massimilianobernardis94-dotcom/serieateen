@@ -294,7 +294,7 @@ async function renderVotazioni(view) {
   view.querySelectorAll('.subtabs button').forEach(b => b.onclick = () => {
     pollSub = b.dataset.s; renderVotazioni(view);
   });
-  if (profile.is_admin) $('#new-poll').onclick = openNewPoll;
+  if (profile.is_admin) $('#new-poll').onclick = () => openPollForm(view);
 
   const list = $('#poll-list');
   const { data: polls, error } = await sb.from('polls')
@@ -350,6 +350,11 @@ function pollCard(poll, results, myOptionId, view) {
 
   if (profile.is_admin) {
     const actions = $('.card-actions', card);
+
+    const edit = el(`<button class="btn btn-ghost btn-sm">Modifica</button>`);
+    edit.onclick = () => openPollForm(view, poll);
+    actions.appendChild(edit);
+
     if (!archived) {
       const arch = el(`<button class="btn btn-ghost btn-sm">Archivia</button>`);
       arch.onclick = async () => {
@@ -381,28 +386,38 @@ async function castVote(pollId, optionId, currentOptionId, view) {
   renderVotazioni(view);
 }
 
-function openNewPoll() {
+async function openPollForm(view, existing = null) {
+  // In modifica: carico le opzioni attuali con i loro id, così da conservare
+  // i voti delle opzioni che restano (aggiorno solo l'etichetta).
+  let existingOpts = [];
+  if (existing) {
+    const { data } = await sb.from('poll_options')
+      .select('id, label, position').eq('poll_id', existing.id).order('position', { ascending: true });
+    existingOpts = data || [];
+  }
+
+  const optRow = (value = '', id = '', ph = 'Opzione') =>
+    `<div class="opt-row"><input class="p-opt" data-id="${esc(id)}" value="${esc(value)}" placeholder="${ph}"><button type="button" class="rm">×</button></div>`;
+  const optsHtml = existing
+    ? existingOpts.map(o => optRow(o.label, o.id)).join('')
+    : optRow('', '', 'Opzione A') + optRow('', '', 'Opzione B');
+
   const modal = el(`
     <div class="modal">
-      <h3>Nuova votazione</h3>
+      <h3>${existing ? 'Modifica votazione' : 'Nuova votazione'}</h3>
       <label>Titolo</label>
-      <input id="p-title" placeholder="Es. Bonus difesa sì o no">
+      <input id="p-title" value="${existing ? esc(existing.title) : ''}" placeholder="Es. Bonus difesa sì o no">
       <label>Descrizione (facoltativa)</label>
-      <textarea id="p-desc" placeholder="Spiega la proposta al voto…" style="min-height:80px"></textarea>
+      <textarea id="p-desc" placeholder="Spiega la proposta al voto…" style="min-height:80px">${existing ? esc(existing.description || '') : ''}</textarea>
       <label>Opzioni</label>
-      <div id="p-opts">
-        ${optRow('Opzione A')}${optRow('Opzione B')}
-      </div>
+      <div id="p-opts">${optsHtml}</div>
       <button class="link-btn" id="add-opt">+ Aggiungi opzione</button>
       <div class="msg" id="p-msg"></div>
       <div class="row">
         <button class="btn btn-ghost" id="p-cancel">Annulla</button>
-        <button class="btn btn-primary" id="p-save">Crea votazione</button>
+        <button class="btn btn-primary" id="p-save">${existing ? 'Salva modifiche' : 'Crea votazione'}</button>
       </div>
     </div>`);
-  function optRow(ph='Opzione') {
-    return `<div class="opt-row"><input class="p-opt" placeholder="${ph}"><button type="button" class="rm">×</button></div>`;
-  }
   openModal(modal);
   const optsHost = $('#p-opts', modal);
   const bindRm = () => optsHost.querySelectorAll('.rm').forEach(b => b.onclick = () => {
@@ -414,14 +429,35 @@ function openNewPoll() {
   $('#p-save', modal).onclick = async () => {
     const title = $('#p-title', modal).value.trim();
     const desc = $('#p-desc', modal).value.trim();
-    const labels = [...modal.querySelectorAll('.p-opt')].map(i => i.value.trim()).filter(Boolean);
+    const rows = [...modal.querySelectorAll('.p-opt')]
+      .map(inp => ({ id: inp.dataset.id || null, label: inp.value.trim() }))
+      .filter(r => r.label)
+      .map((r, i) => ({ ...r, position: i }));
     const msg = $('#p-msg', modal);
-    if (!title || labels.length < 2) { msg.className='msg err'; msg.textContent='Servono un titolo e almeno 2 opzioni.'; return; }
-    const { data: poll, error } = await sb.from('polls')
-      .insert({ title, description: desc || null, created_by: profile.id }).select().single();
-    if (error) { msg.className='msg err'; msg.textContent=error.message; return; }
-    await sb.from('poll_options').insert(labels.map((label, i) => ({ poll_id: poll.id, label, position: i })));
-    closeModal(); pollSub = 'open'; renderApp();
+    if (!title || rows.length < 2) { msg.className='msg err'; msg.textContent='Servono un titolo e almeno 2 opzioni.'; return; }
+
+    if (existing) {
+      const { error } = await sb.from('polls')
+        .update({ title, description: desc || null }).eq('id', existing.id);
+      if (error) { msg.className='msg err'; msg.textContent=error.message; return; }
+
+      // Diff delle opzioni: conservo i voti di quelle che restano,
+      // elimino (con i relativi voti) quelle rimosse, aggiungo le nuove.
+      const keepIds = new Set(rows.filter(r => r.id).map(r => r.id));
+      const toDelete = existingOpts.filter(o => !keepIds.has(o.id)).map(o => o.id);
+      const toInsert = rows.filter(r => !r.id).map(r => ({ poll_id: existing.id, label: r.label, position: r.position }));
+      const toUpdate = rows.filter(r => r.id);
+      if (toDelete.length) await sb.from('poll_options').delete().in('id', toDelete);
+      for (const r of toUpdate) await sb.from('poll_options').update({ label: r.label, position: r.position }).eq('id', r.id);
+      if (toInsert.length) await sb.from('poll_options').insert(toInsert);
+      closeModal(); renderVotazioni(view);
+    } else {
+      const { data: poll, error } = await sb.from('polls')
+        .insert({ title, description: desc || null, created_by: profile.id }).select().single();
+      if (error) { msg.className='msg err'; msg.textContent=error.message; return; }
+      await sb.from('poll_options').insert(rows.map(r => ({ poll_id: poll.id, label: r.label, position: r.position })));
+      closeModal(); pollSub = 'open'; renderApp();
+    }
   };
 }
 
