@@ -344,7 +344,7 @@ function pollCard(poll, results, myOptionId, view) {
         <div class="bar"><span style="width:${pct}%"></span></div>
         <span class="count">${o.vote_count} · ${pct}%</span>
       </div>`);
-    if (!archived) row.onclick = () => castVote(poll.id, o.option_id, myOptionId, view);
+    if (!archived) row.onclick = () => castVote(poll, o.option_id, myOptionId, card, view);
     optsHost.appendChild(row);
   });
 
@@ -375,15 +375,22 @@ function pollCard(poll, results, myOptionId, view) {
   return card;
 }
 
-async function castVote(pollId, optionId, currentOptionId, view) {
+async function castVote(poll, optionId, currentOptionId, card, view) {
   if (optionId === currentOptionId) {
-    await sb.from('votes').delete().eq('poll_id', pollId).eq('voter_id', profile.id); // ritira voto
+    await sb.from('votes').delete().eq('poll_id', poll.id).eq('voter_id', profile.id); // ritira voto
   } else if (currentOptionId) {
-    await sb.from('votes').update({ option_id: optionId }).eq('poll_id', pollId).eq('voter_id', profile.id);
+    await sb.from('votes').update({ option_id: optionId }).eq('poll_id', poll.id).eq('voter_id', profile.id);
   } else {
-    await sb.from('votes').insert({ poll_id: pollId, option_id: optionId, voter_id: profile.id });
+    await sb.from('votes').insert({ poll_id: poll.id, option_id: optionId, voter_id: profile.id });
   }
-  renderVotazioni(view);
+  // Aggiorna in place solo la card votata: niente reload della lista,
+  // così la posizione di scroll resta dov'era.
+  const [{ data: results }, { data: myVotes }] = await Promise.all([
+    sb.from('poll_results').select('*').eq('poll_id', poll.id),
+    sb.from('votes').select('option_id').eq('voter_id', profile.id).eq('poll_id', poll.id),
+  ]);
+  const myOptionId = myVotes && myVotes[0] ? myVotes[0].option_id : undefined;
+  card.replaceWith(pollCard(poll, results || [], myOptionId, view));
 }
 
 async function openPollForm(view, existing = null) {
